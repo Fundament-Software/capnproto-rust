@@ -252,14 +252,14 @@ impl<'a> Builder<'a> {
     pub fn reborrow(&mut self) -> Builder<'_> {
         Builder {
             builder: self.builder.reborrow(),
-            schema: self.schema,
+            schema: self.schema.reborrow(),
         }
     }
 
     pub fn reborrow_as_reader(&self) -> Reader<'_> {
         Reader {
             reader: self.builder.as_reader(),
-            schema: self.schema,
+            schema: self.schema.reborrow(),
         }
     }
 
@@ -271,7 +271,7 @@ impl<'a> Builder<'a> {
     }
 
     pub fn get_schema(&self) -> StructSchema {
-        self.schema
+        self.schema.reborrow()
     }
 
     pub fn downcast<

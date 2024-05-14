@@ -223,7 +223,7 @@ pub struct RawStructSchema<'a> {
 #[derive(Copy, Clone)]
 pub struct RawBrandedStructSchema<'a> {
     /// The unbranded base schema.
-    pub generic: &'a RawStructSchema<'a>,
+    pub generic: *const RawStructSchema<'a>,
 
     /// Map from field index (not ordinal) to Type.
     pub field_types: fn(u16) -> Type,
@@ -231,6 +231,17 @@ pub struct RawBrandedStructSchema<'a> {
     /// Map from (maybe field index, annotation index) to the Type
     /// of the value held by that annotation.
     pub annotation_types: fn(Option<u16>, u32) -> Type,
+}
+
+impl<'a> RawBrandedStructSchema<'a> {
+    #[inline]
+    pub fn reborrow<'b>(&self) -> RawBrandedStructSchema<'b> {
+        // Because capnproto-rust is literally insane, the only way to impement this is via unsafe pointer copies
+        RawBrandedStructSchema {
+            generic: self.generic.cast::<()>().cast::<RawStructSchema<'b>>(),
+            ..*self
+        }
+    }
 }
 
 impl<'a> core::cmp::PartialEq for RawBrandedStructSchema<'a> {

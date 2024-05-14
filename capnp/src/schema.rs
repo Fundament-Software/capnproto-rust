@@ -8,6 +8,58 @@ use crate::struct_list;
 use crate::traits::{IndexMove, ListIter, ShortListIter};
 use crate::Result;
 
+// Builds introspection information at runtime to allow building a StructSchema
+pub struct DynamicStructSchema {
+    msg: crate::message::Reader<crate::serialize::OwnedSegments>,
+    nonunion_member_indexes: Vec<u16>,
+    members_by_discriminant: Vec<u16>,
+}
+
+impl DynamicStructSchema {
+    pub fn new(msg: crate::message::Reader<crate::serialize::OwnedSegments>) -> Self {
+        Self {
+            msg,
+            nonunion_member_indexes: vec![],
+            members_by_discriminant: vec![],
+        }
+    }
+
+    pub fn new_raw<'a>(this: &'a mut Self) -> Result<crate::introspect::RawStructSchema<'a>> {
+        let node: crate::schema_capnp::node::Reader = this.msg.get_root()?;
+
+        if let crate::schema_capnp::node::Which::Struct(st) = node.which()? {
+            let mut union_member_indexes = vec![];
+            for (index, field) in st.get_fields()?.iter().enumerate() {
+                let disc = field.get_discriminant_value();
+                if disc == crate::schema_capnp::field::NO_DISCRIMINANT {
+                    this.nonunion_member_indexes.push(index as u16);
+                } else {
+                    union_member_indexes.push((disc, index as u16));
+                }
+            }
+            union_member_indexes.sort();
+            this.members_by_discriminant = union_member_indexes.iter().map(|(i, d)| *d).collect();
+            Ok(crate::introspect::RawStructSchema {
+                encoded_node: &[],
+                nonunion_members: &this.nonunion_member_indexes,
+                members_by_discriminant: &this.members_by_discriminant,
+            })
+        } else {
+            Err(crate::Error::from_kind(
+                crate::ErrorKind::InitIsOnlyValidForStructAndAnyPointerFields,
+            ))
+        }
+    }
+
+    pub fn new_schema<'a>(raw: &'a crate::introspect::RawStructSchema<'a>) -> StructSchema<'a> {
+        StructSchema::new(crate::introspect::RawBrandedStructSchema {
+            generic: raw,
+            field_types: StructSchema::dynamic_field_marker,
+            annotation_types: StructSchema::dynamic_annotation_marker,
+        })
+    }
+}
+
 /// A struct node, with generics applied.
 #[derive(Clone, Copy)]
 pub struct StructSchema<'a> {
@@ -17,15 +69,22 @@ pub struct StructSchema<'a> {
 
 impl<'a> StructSchema<'a> {
     pub fn new(raw: RawBrandedStructSchema<'a>) -> Self {
-        let proto =
-            crate::any_pointer::Reader::new(unsafe {
-                layout::PointerReader::get_root_unchecked(
-                    raw.generic.encoded_node.as_ptr() as *const u8
-                )
-            })
-            .get_as()
-            .unwrap();
+        let proto = crate::any_pointer::Reader::new(unsafe {
+            layout::PointerReader::get_root_unchecked(
+                (*raw.generic).encoded_node.as_ptr() as *const u8
+            )
+        })
+        .get_as()
+        .unwrap();
         Self { raw, proto }
+    }
+
+    #[inline]
+    pub fn reborrow(&self) -> StructSchema<'_> {
+        StructSchema {
+            proto: self.proto.reborrow(),
+            raw: self.raw.reborrow(),
+        }
     }
 
     pub fn dynamic_field_marker(_: u16) -> crate::introspect::Type {
@@ -34,44 +93,6 @@ impl<'a> StructSchema<'a> {
     pub fn dynamic_annotation_marker(_: Option<u16>, _: u32) -> crate::introspect::Type {
         panic!("Should never be called!");
     }
-
-    /*pub fn new_dynamic(
-        msg: crate::message::Reader<crate::serialize::OwnedSegments>,
-    ) -> Result<Self> {
-        let schema: crate::schema_capnp::node::Reader = msg.get_root()?;
-
-        let raw = if let crate::schema_capnp::node::Which::Struct(st) = schema.which()? {
-            let mut union_member_indexes = vec![];
-            let mut nonunion_member_indexes = vec![];
-            for (index, field) in st.get_fields()?.iter().enumerate() {
-                let disc = field.get_discriminant_value();
-                if disc == crate::schema_capnp::field::NO_DISCRIMINANT {
-                    nonunion_member_indexes.push(index as u16);
-                } else {
-                    union_member_indexes.push((disc, index as u16));
-                }
-            }
-            union_member_indexes.sort();
-            let members_by_discriminant: Vec<u16> =
-                union_member_indexes.iter().map(|(i, d)| *d).collect();
-            Ok(crate::introspect::RawStructSchema {
-                encoded_node: msg.into_segments().as_words(),
-                nonunion_members: &nonunion_member_indexes,
-                members_by_discriminant: &members_by_discriminant,
-            })
-        } else {
-            Err(crate::Error::from_kind(
-                crate::ErrorKind::InitIsOnlyValidForStructAndAnyPointerFields,
-            ))
-        }?;
-
-        Ok(crate::introspect::RawBrandedStructSchema {
-            generic: &raw,
-            field_types: Self::dynamic_field_marker,
-            annotation_types: Self::dynamic_annotation_marker,
-        }
-        .into())
-    }*/
 
     pub fn get_proto(&self) -> node::Reader<'a> {
         self.proto
@@ -89,14 +110,14 @@ impl<'a> StructSchema<'a> {
     }
 
     pub fn get_field_by_discriminant(self, discriminant: u16) -> Result<Option<Field<'a>>> {
-        match self
-            .raw
-            .generic
-            .members_by_discriminant
-            .get(discriminant as usize)
-        {
-            None => Ok(None),
-            Some(&idx) => Ok(Some(self.get_fields()?.get(idx))),
+        unsafe {
+            match (*self.raw.generic)
+                .members_by_discriminant
+                .get(discriminant as usize)
+            {
+                None => Ok(None),
+                Some(&idx) => Ok(Some(self.get_fields()?.get(idx))),
+            }
         }
     }
 
@@ -122,26 +143,30 @@ impl<'a> StructSchema<'a> {
     }
 
     pub fn get_union_fields(self) -> Result<FieldSubset<'a>> {
-        if let node::Struct(s) = self.proto.which()? {
-            Ok(FieldSubset {
-                fields: s.get_fields()?,
-                indices: self.raw.generic.members_by_discriminant,
-                parent: self,
-            })
-        } else {
-            panic!()
+        unsafe {
+            if let node::Struct(s) = self.proto.which()? {
+                Ok(FieldSubset {
+                    fields: s.get_fields()?,
+                    indices: (*self.raw.generic).members_by_discriminant,
+                    parent: self,
+                })
+            } else {
+                panic!()
+            }
         }
     }
 
     pub fn get_non_union_fields(self) -> Result<FieldSubset<'a>> {
-        if let node::Struct(s) = self.proto.which()? {
-            Ok(FieldSubset {
-                fields: s.get_fields()?,
-                indices: self.raw.generic.nonunion_members,
-                parent: self,
-            })
-        } else {
-            panic!()
+        unsafe {
+            if let node::Struct(s) = self.proto.which()? {
+                Ok(FieldSubset {
+                    fields: s.get_fields()?,
+                    indices: (*self.raw.generic).nonunion_members,
+                    parent: self,
+                })
+            } else {
+                panic!()
+            }
         }
     }
 
@@ -174,7 +199,55 @@ impl<'a> Field<'a> {
     }
 
     pub fn get_type(&self) -> introspect::Type {
-        (self.parent.raw.field_types)(self.index)
+        if self.parent.raw.field_types == StructSchema::dynamic_field_marker {
+            let mut found: Option<crate::schema_capnp::type_::Reader<'a>> = None;
+            for (index, field) in self.parent.get_fields().unwrap().iter().enumerate() {
+                if index as u16 == self.index {
+                    found = Some(match field.get_proto().which().unwrap() {
+                        field::Slot(slot) => panic!("aaaa"),
+                        field::Group(group) => {
+                            panic!("don't know how to do groups yet");
+                        }
+                    });
+                }
+            }
+
+            // If anything goes wrong we have to panic anyway
+            match found.unwrap().which().unwrap() {
+                crate::schema_capnp::type_::Which::Void(_) => introspect::TypeVariant::Void,
+                crate::schema_capnp::type_::Which::Bool(_) => introspect::TypeVariant::Bool,
+                crate::schema_capnp::type_::Which::Int8(_) => introspect::TypeVariant::Int8,
+                crate::schema_capnp::type_::Which::Int16(_) => introspect::TypeVariant::Int16,
+                crate::schema_capnp::type_::Which::Int32(_) => introspect::TypeVariant::Int32,
+                crate::schema_capnp::type_::Which::Int64(_) => introspect::TypeVariant::Int64,
+                crate::schema_capnp::type_::Which::Uint8(_) => introspect::TypeVariant::UInt8,
+                crate::schema_capnp::type_::Which::Uint16(_) => introspect::TypeVariant::UInt16,
+                crate::schema_capnp::type_::Which::Uint32(_) => introspect::TypeVariant::UInt32,
+                crate::schema_capnp::type_::Which::Uint64(_) => introspect::TypeVariant::UInt64,
+                crate::schema_capnp::type_::Which::Float32(_) => introspect::TypeVariant::Float32,
+                crate::schema_capnp::type_::Which::Float64(_) => introspect::TypeVariant::Float64,
+                crate::schema_capnp::type_::Which::Text(_) => introspect::TypeVariant::Text,
+                crate::schema_capnp::type_::Which::Data(_) => introspect::TypeVariant::Data,
+                crate::schema_capnp::type_::Which::List(t) => {
+                    panic!("aaa");
+                }
+                crate::schema_capnp::type_::Which::Enum(raw) => {
+                    panic!("aaa");
+                }
+                crate::schema_capnp::type_::Which::Struct(raw) => {
+                    panic!("aaa");
+                }
+                crate::schema_capnp::type_::Which::Interface(raw) => {
+                    introspect::TypeVariant::Capability
+                }
+                crate::schema_capnp::type_::Which::AnyPointer(_) => {
+                    introspect::TypeVariant::AnyPointer
+                }
+            }
+            .into()
+        } else {
+            (self.parent.raw.field_types)(self.index)
+        }
     }
 
     pub fn get_index(&self) -> u16 {
@@ -444,7 +517,12 @@ impl<'a> AnnotationList<'a> {
 
     pub fn get(self, index: u32) -> Annotation<'a> {
         let proto = self.annotations.get(index);
-        let ty = (self.get_annotation_type)(self.child_index, index);
+        let ty = if self.get_annotation_type != StructSchema::dynamic_annotation_marker {
+            (self.get_annotation_type)(self.child_index, index)
+        } else {
+            todo!();
+        };
+
         Annotation { proto, ty }
     }
 

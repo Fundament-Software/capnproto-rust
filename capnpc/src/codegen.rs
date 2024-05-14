@@ -2008,7 +2008,7 @@ fn generate_node(
             // `static` instead of `const` so that this has a fixed memory address
             // and we can check equality of `RawStructSchema` values by comparing pointers.
             private_mod_interior.push(Branch(vec![
-                Line(fmt!(ctx,"pub static RAW_SCHEMA: {capnp}::introspect::RawStructSchema = {capnp}::introspect::RawStructSchema {{")),
+                Line(fmt!(ctx,"pub static RAW_SCHEMA: {capnp}::introspect::RawStructSchema<'_> = {capnp}::introspect::RawStructSchema {{")),
                 indent(vec![
                     Line("encoded_node: &ENCODED_NODE,".into()),
                     Line("nonunion_members: NONUNION_MEMBERS,".into()),
