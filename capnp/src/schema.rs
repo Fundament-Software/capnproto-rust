@@ -10,13 +10,13 @@ use crate::Result;
 
 /// A struct node, with generics applied.
 #[derive(Clone, Copy)]
-pub struct StructSchema {
-    pub(crate) raw: RawBrandedStructSchema,
-    pub(crate) proto: node::Reader<'static>,
+pub struct StructSchema<'a> {
+    pub(crate) raw: RawBrandedStructSchema<'a>,
+    pub(crate) proto: node::Reader<'a>,
 }
 
-impl StructSchema {
-    pub fn new(raw: RawBrandedStructSchema) -> Self {
+impl<'a> StructSchema<'a> {
+    pub fn new(raw: RawBrandedStructSchema<'a>) -> Self {
         let proto =
             crate::any_pointer::Reader::new(unsafe {
                 layout::PointerReader::get_root_unchecked(
@@ -28,11 +28,56 @@ impl StructSchema {
         Self { raw, proto }
     }
 
-    pub fn get_proto(&self) -> node::Reader<'static> {
+    pub fn dynamic_field_marker(_: u16) -> crate::introspect::Type {
+        panic!("Should never be called!");
+    }
+    pub fn dynamic_annotation_marker(_: Option<u16>, _: u32) -> crate::introspect::Type {
+        panic!("Should never be called!");
+    }
+
+    /*pub fn new_dynamic(
+        msg: crate::message::Reader<crate::serialize::OwnedSegments>,
+    ) -> Result<Self> {
+        let schema: crate::schema_capnp::node::Reader = msg.get_root()?;
+
+        let raw = if let crate::schema_capnp::node::Which::Struct(st) = schema.which()? {
+            let mut union_member_indexes = vec![];
+            let mut nonunion_member_indexes = vec![];
+            for (index, field) in st.get_fields()?.iter().enumerate() {
+                let disc = field.get_discriminant_value();
+                if disc == crate::schema_capnp::field::NO_DISCRIMINANT {
+                    nonunion_member_indexes.push(index as u16);
+                } else {
+                    union_member_indexes.push((disc, index as u16));
+                }
+            }
+            union_member_indexes.sort();
+            let members_by_discriminant: Vec<u16> =
+                union_member_indexes.iter().map(|(i, d)| *d).collect();
+            Ok(crate::introspect::RawStructSchema {
+                encoded_node: msg.into_segments().as_words(),
+                nonunion_members: &nonunion_member_indexes,
+                members_by_discriminant: &members_by_discriminant,
+            })
+        } else {
+            Err(crate::Error::from_kind(
+                crate::ErrorKind::InitIsOnlyValidForStructAndAnyPointerFields,
+            ))
+        }?;
+
+        Ok(crate::introspect::RawBrandedStructSchema {
+            generic: &raw,
+            field_types: Self::dynamic_field_marker,
+            annotation_types: Self::dynamic_annotation_marker,
+        }
+        .into())
+    }*/
+
+    pub fn get_proto(&self) -> node::Reader<'a> {
         self.proto
     }
 
-    pub fn get_fields(self) -> crate::Result<FieldList> {
+    pub fn get_fields(self) -> crate::Result<FieldList<'a>> {
         if let node::Struct(s) = self.proto.which()? {
             Ok(FieldList {
                 fields: s.get_fields()?,
@@ -43,7 +88,7 @@ impl StructSchema {
         }
     }
 
-    pub fn get_field_by_discriminant(self, discriminant: u16) -> Result<Option<Field>> {
+    pub fn get_field_by_discriminant(self, discriminant: u16) -> Result<Option<Field<'a>>> {
         match self
             .raw
             .generic
@@ -56,7 +101,7 @@ impl StructSchema {
     }
 
     /// Looks up a field by name. Returns `None` if no matching field is found.
-    pub fn find_field_by_name(&self, name: &str) -> Result<Option<Field>> {
+    pub fn find_field_by_name(&self, name: &str) -> Result<Option<Field<'a>>> {
         for field in self.get_fields()? {
             if field.get_proto().get_name()? == name {
                 return Ok(Some(field));
@@ -66,7 +111,7 @@ impl StructSchema {
     }
 
     /// Like `find_field_by_name()`, but returns an error if the field is not found.
-    pub fn get_field_by_name(&self, name: &str) -> Result<Field> {
+    pub fn get_field_by_name(&self, name: &str) -> Result<Field<'a>> {
         if let Some(field) = self.find_field_by_name(name)? {
             Ok(field)
         } else {
@@ -76,7 +121,7 @@ impl StructSchema {
         }
     }
 
-    pub fn get_union_fields(self) -> Result<FieldSubset> {
+    pub fn get_union_fields(self) -> Result<FieldSubset<'a>> {
         if let node::Struct(s) = self.proto.which()? {
             Ok(FieldSubset {
                 fields: s.get_fields()?,
@@ -88,7 +133,7 @@ impl StructSchema {
         }
     }
 
-    pub fn get_non_union_fields(self) -> Result<FieldSubset> {
+    pub fn get_non_union_fields(self) -> Result<FieldSubset<'a>> {
         if let node::Struct(s) = self.proto.which()? {
             Ok(FieldSubset {
                 fields: s.get_fields()?,
@@ -100,7 +145,7 @@ impl StructSchema {
         }
     }
 
-    pub fn get_annotations(self) -> Result<AnnotationList> {
+    pub fn get_annotations(self) -> Result<AnnotationList<'a>> {
         Ok(AnnotationList {
             annotations: self.proto.get_annotations()?,
             child_index: None,
@@ -109,7 +154,7 @@ impl StructSchema {
     }
 }
 
-impl From<RawBrandedStructSchema> for StructSchema {
+impl<'a> From<RawBrandedStructSchema<'a>> for StructSchema<'a> {
     fn from(rs: RawBrandedStructSchema) -> StructSchema {
         StructSchema::new(rs)
     }
@@ -117,14 +162,14 @@ impl From<RawBrandedStructSchema> for StructSchema {
 
 /// A field of a struct, with generics applied.
 #[derive(Clone, Copy)]
-pub struct Field {
-    proto: field::Reader<'static>,
+pub struct Field<'a> {
+    proto: field::Reader<'a>,
     index: u16,
-    pub(crate) parent: StructSchema,
+    pub(crate) parent: StructSchema<'a>,
 }
 
-impl Field {
-    pub fn get_proto(self) -> field::Reader<'static> {
+impl<'a> Field<'a> {
+    pub fn get_proto(self) -> field::Reader<'a> {
         self.proto
     }
 
@@ -136,7 +181,7 @@ impl Field {
         self.index
     }
 
-    pub fn get_annotations(self) -> Result<AnnotationList> {
+    pub fn get_annotations(self) -> Result<AnnotationList<'a>> {
         Ok(AnnotationList {
             annotations: self.proto.get_annotations()?,
             child_index: Some(self.index),
@@ -147,12 +192,12 @@ impl Field {
 
 /// A list of fields of a struct, with generics applied.
 #[derive(Clone, Copy)]
-pub struct FieldList {
-    pub(crate) fields: crate::struct_list::Reader<'static, field::Owned>,
-    pub(crate) parent: StructSchema,
+pub struct FieldList<'a> {
+    pub(crate) fields: crate::struct_list::Reader<'a, field::Owned>,
+    pub(crate) parent: StructSchema<'a>,
 }
 
-impl FieldList {
+impl<'a> FieldList<'a> {
     pub fn len(&self) -> u16 {
         self.fields.len() as u16
     }
@@ -161,7 +206,7 @@ impl FieldList {
         self.len() == 0
     }
 
-    pub fn get(self, index: u16) -> Field {
+    pub fn get(self, index: u16) -> Field<'a> {
         Field {
             proto: self.fields.get(index as u32),
             index,
@@ -169,20 +214,20 @@ impl FieldList {
         }
     }
 
-    pub fn iter(self) -> ShortListIter<Self, Field> {
+    pub fn iter(self) -> ShortListIter<Self, Field<'a>> {
         ShortListIter::new(self, self.len())
     }
 }
 
-impl IndexMove<u16, Field> for FieldList {
-    fn index_move(&self, index: u16) -> Field {
+impl<'a> IndexMove<u16, Field<'a>> for FieldList<'a> {
+    fn index_move(&self, index: u16) -> Field<'a> {
         self.get(index)
     }
 }
 
-impl ::core::iter::IntoIterator for FieldList {
-    type Item = Field;
-    type IntoIter = ShortListIter<FieldList, Self::Item>;
+impl<'a> ::core::iter::IntoIterator for FieldList<'a> {
+    type Item = Field<'a>;
+    type IntoIter = ShortListIter<FieldList<'a>, Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -191,13 +236,13 @@ impl ::core::iter::IntoIterator for FieldList {
 
 /// A list of a subset of fields of a struct, with generics applied.
 #[derive(Clone, Copy)]
-pub struct FieldSubset {
-    fields: struct_list::Reader<'static, field::Owned>,
-    indices: &'static [u16],
-    parent: StructSchema,
+pub struct FieldSubset<'a> {
+    fields: struct_list::Reader<'a, field::Owned>,
+    indices: &'a [u16],
+    parent: StructSchema<'a>,
 }
 
-impl FieldSubset {
+impl<'a> FieldSubset<'a> {
     pub fn len(&self) -> u16 {
         self.indices.len() as u16
     }
@@ -206,7 +251,7 @@ impl FieldSubset {
         self.len() == 0
     }
 
-    pub fn get(self, index: u16) -> Field {
+    pub fn get(self, index: u16) -> Field<'a> {
         let index = self.indices[index as usize];
         Field {
             proto: self.fields.get(index as u32),
@@ -215,20 +260,20 @@ impl FieldSubset {
         }
     }
 
-    pub fn iter(self) -> ShortListIter<Self, Field> {
+    pub fn iter(self) -> ShortListIter<Self, Field<'a>> {
         ShortListIter::new(self, self.len())
     }
 }
 
-impl IndexMove<u16, Field> for FieldSubset {
-    fn index_move(&self, index: u16) -> Field {
+impl<'a> IndexMove<u16, Field<'a>> for FieldSubset<'a> {
+    fn index_move(&self, index: u16) -> Field<'a> {
         self.get(index)
     }
 }
 
-impl ::core::iter::IntoIterator for FieldSubset {
-    type Item = Field;
-    type IntoIter = ShortListIter<FieldSubset, Self::Item>;
+impl<'a> ::core::iter::IntoIterator for FieldSubset<'a> {
+    type Item = Field<'a>;
+    type IntoIter = ShortListIter<FieldSubset<'a>, Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -267,7 +312,7 @@ impl EnumSchema {
         }
     }
 
-    pub fn get_annotations(self) -> Result<AnnotationList> {
+    pub fn get_annotations(self) -> Result<AnnotationList<'static>> {
         Ok(AnnotationList {
             annotations: self.proto.get_annotations()?,
             child_index: None,
@@ -303,7 +348,7 @@ impl Enumerant {
         self.proto
     }
 
-    pub fn get_annotations(self) -> Result<AnnotationList> {
+    pub fn get_annotations(self) -> Result<AnnotationList<'static>> {
         Ok(AnnotationList {
             annotations: self.proto.get_annotations()?,
             child_index: Some(self.ordinal),
@@ -358,14 +403,14 @@ impl ::core::iter::IntoIterator for EnumerantList {
 
 /// An annotation.
 #[derive(Clone, Copy)]
-pub struct Annotation {
-    proto: annotation::Reader<'static>,
+pub struct Annotation<'a> {
+    proto: annotation::Reader<'a>,
     ty: introspect::Type,
 }
 
-impl Annotation {
+impl<'a> Annotation<'a> {
     /// Gets the value held in this annotation.
-    pub fn get_value(self) -> Result<dynamic_value::Reader<'static>> {
+    pub fn get_value(self) -> Result<dynamic_value::Reader<'a>> {
         dynamic_value::Reader::new(self.proto.get_value()?, self.ty)
     }
 
@@ -382,13 +427,13 @@ impl Annotation {
 
 /// A list of annotations.
 #[derive(Clone, Copy)]
-pub struct AnnotationList {
-    annotations: struct_list::Reader<'static, annotation::Owned>,
+pub struct AnnotationList<'a> {
+    annotations: struct_list::Reader<'a, annotation::Owned>,
     child_index: Option<u16>,
     get_annotation_type: fn(Option<u16>, u32) -> introspect::Type,
 }
 
-impl AnnotationList {
+impl<'a> AnnotationList<'a> {
     pub fn len(&self) -> u32 {
         self.annotations.len()
     }
@@ -397,7 +442,7 @@ impl AnnotationList {
         self.len() == 0
     }
 
-    pub fn get(self, index: u32) -> Annotation {
+    pub fn get(self, index: u32) -> Annotation<'a> {
         let proto = self.annotations.get(index);
         let ty = (self.get_annotation_type)(self.child_index, index);
         Annotation { proto, ty }
@@ -405,23 +450,23 @@ impl AnnotationList {
 
     /// Returns the first annotation in the list that matches `id`.
     /// Otherwise returns `None`.
-    pub fn find(self, id: u64) -> Option<Annotation> {
+    pub fn find(self, id: u64) -> Option<Annotation<'a>> {
         self.iter().find(|&annotation| annotation.get_id() == id)
     }
 
-    pub fn iter(self) -> ListIter<Self, Annotation> {
+    pub fn iter(self) -> ListIter<Self, Annotation<'a>> {
         ListIter::new(self, self.len())
     }
 }
 
-impl IndexMove<u32, Annotation> for AnnotationList {
-    fn index_move(&self, index: u32) -> Annotation {
+impl<'a> IndexMove<u32, Annotation<'a>> for AnnotationList<'a> {
+    fn index_move(&self, index: u32) -> Annotation<'a> {
         self.get(index)
     }
 }
 
-impl ::core::iter::IntoIterator for AnnotationList {
-    type Item = Annotation;
+impl<'a> ::core::iter::IntoIterator for AnnotationList<'a> {
+    type Item = Annotation<'a>;
     type IntoIter = ListIter<Self, Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {

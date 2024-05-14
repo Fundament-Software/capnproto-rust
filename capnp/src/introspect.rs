@@ -124,7 +124,7 @@ pub enum TypeVariant {
     Float64,
     Text,
     Data,
-    Struct(RawBrandedStructSchema),
+    Struct(RawBrandedStructSchema<'static>),
     AnyPointer,
     Capability,
     Enum(RawEnumSchema),
@@ -174,7 +174,7 @@ enum BaseType {
     Float64,
     Text,
     Data,
-    Struct(RawBrandedStructSchema),
+    Struct(RawBrandedStructSchema<'static>),
     AnyPointer,
     Capability,
     Enum(RawEnumSchema),
@@ -204,15 +204,15 @@ primitive_introspect!(f64, Float64);
 /// Type information that gets included in the generated code for every
 /// user-defined Cap'n Proto struct.
 #[derive(Copy, Clone)]
-pub struct RawStructSchema {
+pub struct RawStructSchema<'a> {
     /// The Node (as defined in schema.capnp), as a single segment message.
-    pub encoded_node: &'static [crate::Word],
+    pub encoded_node: &'a [crate::Word],
 
     /// Indices (not ordinals) of fields that don't have a discriminant value.
-    pub nonunion_members: &'static [u16],
+    pub nonunion_members: &'a [u16],
 
     /// Map from discriminant value to field index.
-    pub members_by_discriminant: &'static [u16],
+    pub members_by_discriminant: &'a [u16],
     //
     // TODO: members_by_name, allowing fast field lookup by name.
 }
@@ -221,9 +221,9 @@ pub struct RawStructSchema {
 /// To use one of this, you will usually want to convert it to a `schema::StructSchema`,
 /// which can be done via `into()`.
 #[derive(Copy, Clone)]
-pub struct RawBrandedStructSchema {
+pub struct RawBrandedStructSchema<'a> {
     /// The unbranded base schema.
-    pub generic: &'static RawStructSchema,
+    pub generic: &'a RawStructSchema<'a>,
 
     /// Map from field index (not ordinal) to Type.
     pub field_types: fn(u16) -> Type,
@@ -233,7 +233,7 @@ pub struct RawBrandedStructSchema {
     pub annotation_types: fn(Option<u16>, u32) -> Type,
 }
 
-impl core::cmp::PartialEq for RawBrandedStructSchema {
+impl<'a> core::cmp::PartialEq for RawBrandedStructSchema<'a> {
     fn eq(&self, other: &Self) -> bool {
         core::ptr::eq(self.generic, other.generic) && self.field_types == other.field_types
         // don't need to compare annotation_types.
@@ -241,9 +241,9 @@ impl core::cmp::PartialEq for RawBrandedStructSchema {
     }
 }
 
-impl core::cmp::Eq for RawBrandedStructSchema {}
+impl<'a> core::cmp::Eq for RawBrandedStructSchema<'a> {}
 
-impl core::fmt::Debug for RawBrandedStructSchema {
+impl<'a> core::fmt::Debug for RawBrandedStructSchema<'a> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::result::Result<(), core::fmt::Error> {
         write!(
             f,

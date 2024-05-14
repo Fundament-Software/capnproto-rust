@@ -175,6 +175,12 @@ pub struct OwnedSegments {
     owned_space: Vec<crate::Word>,
 }
 
+impl OwnedSegments {
+    pub fn as_words(&self) -> &[crate::Word] {
+        &self.owned_space[..]
+    }
+}
+
 #[cfg(feature = "alloc")]
 impl core::ops::Deref for OwnedSegments {
     type Target = [u8];

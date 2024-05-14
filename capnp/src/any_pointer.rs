@@ -161,6 +161,26 @@ impl<'a> Builder<'a> {
         FromPointerBuilder::init_pointer(self.builder, 0)
     }
 
+    pub fn init_dynamic(
+        self,
+        schema: crate::schema::StructSchema<'a>,
+    ) -> Result<crate::dynamic_struct::Builder<'a>> {
+        if let crate::schema_capnp::node::Which::Struct(s) = schema.proto.which()? {
+            Ok(crate::dynamic_struct::Builder::new(
+                self.builder
+                    .init_struct(crate::private::layout::StructSize {
+                        data: s.get_data_word_count(),
+                        pointers: s.get_pointer_count(),
+                    }),
+                schema,
+            ))
+        } else {
+            Err(crate::Error::from_kind(
+                crate::ErrorKind::InitIsOnlyValidForStructAndAnyPointerFields,
+            ))
+        }
+    }
+
     pub fn initn_as<T: FromPointerBuilder<'a>>(self, size: u32) -> T {
         FromPointerBuilder::init_pointer(self.builder, size)
     }

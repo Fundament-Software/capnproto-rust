@@ -26,7 +26,7 @@ pub(crate) fn struct_size_from_schema(schema: StructSchema) -> Result<layout::St
 #[derive(Clone, Copy)]
 pub struct Reader<'a> {
     pub(crate) reader: layout::StructReader<'a>,
-    schema: StructSchema,
+    schema: StructSchema<'a>,
 }
 
 impl<'a> From<Reader<'a>> for dynamic_value::Reader<'a> {
@@ -36,7 +36,7 @@ impl<'a> From<Reader<'a>> for dynamic_value::Reader<'a> {
 }
 
 impl<'a> Reader<'a> {
-    pub fn new(reader: layout::StructReader<'a>, schema: StructSchema) -> Self {
+    pub fn new(reader: layout::StructReader<'a>, schema: StructSchema<'a>) -> Self {
         Self { reader, schema }
     }
 
@@ -48,7 +48,7 @@ impl<'a> Reader<'a> {
         self.schema
     }
 
-    pub fn get(self, field: Field) -> Result<dynamic_value::Reader<'a>> {
+    pub fn get(self, field: Field<'a>) -> Result<dynamic_value::Reader<'a>> {
         assert_eq!(self.schema.raw, field.parent.raw);
         let ty = field.get_type();
         match field.get_proto().which()? {
@@ -235,7 +235,7 @@ impl<'a> Reader<'a> {
 /// A mutable dynamically-typed struct.
 pub struct Builder<'a> {
     builder: layout::StructBuilder<'a>,
-    schema: StructSchema,
+    schema: StructSchema<'a>,
 }
 
 impl<'a> From<Builder<'a>> for dynamic_value::Builder<'a> {
@@ -245,7 +245,7 @@ impl<'a> From<Builder<'a>> for dynamic_value::Builder<'a> {
 }
 
 impl<'a> Builder<'a> {
-    pub fn new(builder: layout::StructBuilder<'a>, schema: StructSchema) -> Self {
+    pub fn new(builder: layout::StructBuilder<'a>, schema: StructSchema<'a>) -> Self {
         Self { builder, schema }
     }
 
