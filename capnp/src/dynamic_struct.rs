@@ -44,7 +44,7 @@ impl<'a> Reader<'a> {
         self.reader.total_size()
     }
 
-    pub fn get_schema(&self) -> StructSchema {
+    pub fn get_schema(&self) -> StructSchema<'a> {
         self.schema
     }
 
@@ -270,8 +270,8 @@ impl<'a> Builder<'a> {
         }
     }
 
-    pub fn get_schema(&self) -> StructSchema {
-        self.schema.reborrow()
+    pub fn get_schema(&self) -> StructSchema<'a> {
+        self.schema
     }
 
     pub fn downcast<
