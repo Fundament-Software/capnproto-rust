@@ -23,20 +23,22 @@ pub(crate) fn struct_size_from_schema(schema: StructSchema) -> Result<layout::St
 }
 
 /// A read-only dynamically-typed struct.
+pub type Reader<'a> = ReaderSchemaLifeTime<'a, 'static>;
+
 #[derive(Clone, Copy)]
-pub struct Reader<'a> {
+pub struct ReaderSchemaLifeTime<'a, 'schema> {
     pub(crate) reader: layout::StructReader<'a>,
-    schema: StructSchema<'a>,
+    schema: StructSchema<'schema>,
 }
 
-impl<'a> From<Reader<'a>> for dynamic_value::Reader<'a> {
-    fn from(x: Reader<'a>) -> dynamic_value::Reader<'a> {
+impl<'a, 'schema: 'static> From<ReaderSchemaLifeTime<'a, 'schema>> for dynamic_value::Reader<'a> {
+    fn from(x: ReaderSchemaLifeTime<'a, 'schema>) -> dynamic_value::Reader<'a> {
         dynamic_value::Reader::Struct(x)
     }
 }
 
-impl<'a> Reader<'a> {
-    pub fn new(reader: layout::StructReader<'a>, schema: StructSchema<'a>) -> Self {
+impl<'a, 'schema> ReaderSchemaLifeTime<'a, 'schema> {
+    pub fn new(reader: layout::StructReader<'a>, schema: StructSchema<'schema>) -> Self {
         Self { reader, schema }
     }
 
@@ -44,7 +46,7 @@ impl<'a> Reader<'a> {
         self.reader.total_size()
     }
 
-    pub fn get_schema(&self) -> StructSchema<'a> {
+    pub fn get_schema(&self) -> StructSchema<'schema> {
         self.schema
     }
 
@@ -174,7 +176,8 @@ impl<'a> Reader<'a> {
     }
 
     /// Gets the field with the given name.
-    pub fn get_named(self, field_name: &str) -> Result<dynamic_value::Reader<'a>> {
+    pub fn get_named(self, field_name: &str) -> Result<dynamic_value::Reader<'a>>
+    where 'schema: 'a {
         self.get(self.schema.get_field_by_name(field_name)?)
     }
 
@@ -232,10 +235,12 @@ impl<'a> Reader<'a> {
     }
 }
 
+pub type Builder<'a> = BuilderSchemaLifeTime<'a, 'static>;
+
 /// A mutable dynamically-typed struct.
-pub struct Builder<'a> {
+pub struct BuilderSchemaLifeTime<'a, 'schema> {
     builder: layout::StructBuilder<'a>,
-    schema: StructSchema<'a>,
+    schema: StructSchema<'schema>,
 }
 
 impl<'a> From<Builder<'a>> for dynamic_value::Builder<'a> {
@@ -244,33 +249,33 @@ impl<'a> From<Builder<'a>> for dynamic_value::Builder<'a> {
     }
 }
 
-impl<'a> Builder<'a> {
-    pub fn new(builder: layout::StructBuilder<'a>, schema: StructSchema<'a>) -> Self {
-        Self { builder, schema }
+impl<'a, 'schema> BuilderSchemaLifeTime<'a, 'schema> {
+    pub fn new(builder: layout::StructBuilder<'a>, schema: StructSchema<'schema>) -> BuilderSchemaLifeTime<'a, 'schema> {
+        BuilderSchemaLifeTime { builder, schema }
     }
 
-    pub fn reborrow(&mut self) -> Builder<'_> {
-        Builder {
+    pub fn reborrow(&mut self) -> BuilderSchemaLifeTime<'_, 'schema> {
+        BuilderSchemaLifeTime {
             builder: self.builder.reborrow(),
-            schema: self.schema.reborrow(),
+            schema: self.schema,
         }
     }
 
-    pub fn reborrow_as_reader(&self) -> Reader<'_> {
-        Reader {
+    pub fn reborrow_as_reader(&self) -> ReaderSchemaLifeTime<'_, 'schema> {
+        ReaderSchemaLifeTime {
             reader: self.builder.as_reader(),
-            schema: self.schema.reborrow(),
+            schema: self.schema,
         }
     }
 
-    pub fn into_reader(self) -> Reader<'a> {
-        Reader {
+    pub fn into_reader(self) -> ReaderSchemaLifeTime<'a, 'schema> {
+        ReaderSchemaLifeTime {
             schema: self.schema,
             reader: self.builder.into_reader(),
         }
     }
 
-    pub fn get_schema(&self) -> StructSchema<'a> {
+    pub fn get_schema(&self) -> StructSchema<'schema> {
         self.schema
     }
 
