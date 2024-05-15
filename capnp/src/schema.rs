@@ -83,7 +83,7 @@ impl<'a> StructSchema<'a> {
     pub fn reborrow(&self) -> StructSchema<'_> {
         StructSchema {
             proto: self.proto.reborrow(),
-            raw: self.raw.reborrow(),
+            raw: self.raw,
         }
     }
 

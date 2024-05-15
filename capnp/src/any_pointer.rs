@@ -161,7 +161,7 @@ impl<'a> Builder<'a> {
         FromPointerBuilder::init_pointer(self.builder, 0)
     }
 
-    pub fn init_dynamic<'sc>(
+    pub fn init_dynamic<'sc: 'a>(
         self,
         schema: crate::schema::StructSchema<'sc>,
     ) -> Result<crate::dynamic_struct::BuilderSchemaLifeTime<'a, 'sc>> {

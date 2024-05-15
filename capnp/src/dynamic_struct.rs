@@ -249,7 +249,7 @@ impl<'a> From<Builder<'a>> for dynamic_value::Builder<'a> {
     }
 }
 
-impl<'a, 'schema> BuilderSchemaLifeTime<'a, 'schema> {
+impl<'a, 'schema: 'a> BuilderSchemaLifeTime<'a, 'schema> {
     pub fn new(builder: layout::StructBuilder<'a>, schema: StructSchema<'schema>) -> BuilderSchemaLifeTime<'a, 'schema> {
         BuilderSchemaLifeTime { builder, schema }
     }
