@@ -124,7 +124,7 @@ pub enum TypeVariant {
     Float64,
     Text,
     Data,
-    Struct(RawBrandedStructSchema<'static>),
+    Struct(RawBrandedStructSchema),
     AnyPointer,
     Capability,
     Enum(RawEnumSchema),
@@ -174,7 +174,7 @@ enum BaseType {
     Float64,
     Text,
     Data,
-    Struct(RawBrandedStructSchema<'static>),
+    Struct(RawBrandedStructSchema),
     AnyPointer,
     Capability,
     Enum(RawEnumSchema),
@@ -204,26 +204,36 @@ primitive_introspect!(f64, Float64);
 /// Type information that gets included in the generated code for every
 /// user-defined Cap'n Proto struct.
 #[derive(Copy, Clone)]
-pub struct RawStructSchema<'a> {
+pub struct RawStructSchema {
     /// The Node (as defined in schema.capnp), as a single segment message.
-    pub encoded_node: &'a [crate::Word],
+    pub encoded_node: *const [crate::Word],
 
     /// Indices (not ordinals) of fields that don't have a discriminant value.
-    pub nonunion_members: &'a [u16],
+    pub nonunion_members: *const [u16],
 
     /// Map from discriminant value to field index.
-    pub members_by_discriminant: &'a [u16],
+    pub members_by_discriminant: *const [u16],
     //
     // TODO: members_by_name, allowing fast field lookup by name.
 }
+
+impl core::cmp::PartialEq for RawStructSchema {
+    fn eq(&self, other: &Self) -> bool {
+        core::ptr::eq(self.encoded_node, other.encoded_node)
+    }
+}
+
+impl core::cmp::Eq for RawStructSchema {}
+
+unsafe impl Sync for RawStructSchema {}
 
 /// A RawStructSchema with branding information, i.e. resolution of type parameters.
 /// To use one of this, you will usually want to convert it to a `schema::StructSchema`,
 /// which can be done via `into()`.
 #[derive(Copy, Clone)]
-pub struct RawBrandedStructSchema<'a> {
+pub struct RawBrandedStructSchema {
     /// The unbranded base schema.
-    pub generic: *const RawStructSchema<'a>,
+    pub generic: RawStructSchema,
 
     /// Map from field index (not ordinal) to Type.
     pub field_types: fn(u16) -> Type,
@@ -233,33 +243,22 @@ pub struct RawBrandedStructSchema<'a> {
     pub annotation_types: fn(Option<u16>, u32) -> Type,
 }
 
-impl<'a> RawBrandedStructSchema<'a> {
-    #[inline]
-    pub fn reborrow<'b>(&self) -> RawBrandedStructSchema<'b> {
-        // Because capnproto-rust is literally insane, the only way to impement this is via unsafe pointer copies
-        RawBrandedStructSchema {
-            generic: self.generic.cast::<()>().cast::<RawStructSchema<'b>>(),
-            ..*self
-        }
-    }
-}
-
-impl<'a> core::cmp::PartialEq for RawBrandedStructSchema<'a> {
+impl core::cmp::PartialEq for RawBrandedStructSchema {
     fn eq(&self, other: &Self) -> bool {
-        core::ptr::eq(self.generic, other.generic) && self.field_types == other.field_types
+        self.generic == other.generic && self.field_types == other.field_types
         // don't need to compare annotation_types.
         // that field is equal iff field_types is.
     }
 }
 
-impl<'a> core::cmp::Eq for RawBrandedStructSchema<'a> {}
+impl core::cmp::Eq for RawBrandedStructSchema {}
 
-impl<'a> core::fmt::Debug for RawBrandedStructSchema<'a> {
+impl core::fmt::Debug for RawBrandedStructSchema {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::result::Result<(), core::fmt::Error> {
         write!(
             f,
             "RawBrandedStructSchema({:?}, {:?})",
-            self.generic as *const _, self.field_types as *const fn(u16) -> Type
+            self.generic.encoded_node as *const _, self.field_types as *const fn(u16) -> Type
         )
     }
 }

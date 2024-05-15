@@ -3583,7 +3583,7 @@ pub struct StructBuilder<'a> {
 
 impl<'a> StructBuilder<'a> {
     #[inline]
-    pub fn reborrow(&mut self) -> StructBuilder<'_> {
+    pub fn reborrow<'b>(&'b mut self) -> StructBuilder<'b> {
         StructBuilder {
             arena: self.arena,
             ..*self

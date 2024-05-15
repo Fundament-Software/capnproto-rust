@@ -44,8 +44,8 @@ impl<'a> Reader<'a> {
         self.reader.total_size()
     }
 
-    pub fn get_schema(&self) -> StructSchema {
-        self.schema
+    pub fn get_schema(&self) -> StructSchema<'_> {
+        StructSchema::new(self.schema.raw)
     }
 
     pub fn get(self, field: Field<'a>) -> Result<dynamic_value::Reader<'a>> {
@@ -249,17 +249,17 @@ impl<'a> Builder<'a> {
         Self { builder, schema }
     }
 
-    pub fn reborrow(&mut self) -> Builder<'_> {
+    pub fn reborrow<'b>(&'b mut self) -> Builder<'b> {
         Builder {
             builder: self.builder.reborrow(),
-            schema: self.schema.reborrow(),
+            schema: StructSchema::new(self.schema.raw),
         }
     }
 
-    pub fn reborrow_as_reader(&self) -> Reader<'_> {
+    pub fn reborrow_as_reader<'b>(&'b self) -> Reader<'b> {
         Reader {
             reader: self.builder.as_reader(),
-            schema: self.schema.reborrow(),
+            schema: StructSchema::new(self.schema.raw),
         }
     }
 
@@ -270,8 +270,8 @@ impl<'a> Builder<'a> {
         }
     }
 
-    pub fn get_schema(&self) -> StructSchema {
-        self.schema.reborrow()
+    pub fn get_schema<'c, 'b>(&'c self) -> StructSchema<'b> {
+        StructSchema::new(self.schema.raw)
     }
 
     pub fn downcast<

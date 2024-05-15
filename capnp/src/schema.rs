@@ -24,7 +24,7 @@ impl DynamicStructSchema {
         }
     }
 
-    pub fn new_raw<'a>(this: &'a mut Self) -> Result<crate::introspect::RawStructSchema<'a>> {
+    pub fn new_schema<'a>(this: &'a mut Self) -> Result<StructSchema<'a>> {
         let node: crate::schema_capnp::node::Reader = this.msg.get_root()?;
 
         if let crate::schema_capnp::node::Which::Struct(st) = node.which()? {
@@ -39,40 +39,37 @@ impl DynamicStructSchema {
             }
             union_member_indexes.sort();
             this.members_by_discriminant = union_member_indexes.iter().map(|(i, d)| *d).collect();
-            Ok(crate::introspect::RawStructSchema {
-                encoded_node: &[],
-                nonunion_members: &this.nonunion_member_indexes,
-                members_by_discriminant: &this.members_by_discriminant,
-            })
+            Ok(StructSchema::new(
+                crate::introspect::RawBrandedStructSchema {
+                    generic: crate::introspect::RawStructSchema {
+                        encoded_node: &[],
+                        nonunion_members: (&this.nonunion_member_indexes[..]) as *const [u16],
+                        members_by_discriminant: (&this.members_by_discriminant[..])
+                            as *const [u16],
+                    },
+                    field_types: StructSchema::dynamic_field_marker,
+                    annotation_types: StructSchema::dynamic_annotation_marker,
+                },
+            ))
         } else {
             Err(crate::Error::from_kind(
                 crate::ErrorKind::InitIsOnlyValidForStructAndAnyPointerFields,
             ))
         }
     }
-
-    pub fn new_schema<'a>(raw: &'a crate::introspect::RawStructSchema<'a>) -> StructSchema<'a> {
-        StructSchema::new(crate::introspect::RawBrandedStructSchema {
-            generic: raw,
-            field_types: StructSchema::dynamic_field_marker,
-            annotation_types: StructSchema::dynamic_annotation_marker,
-        })
-    }
 }
 
 /// A struct node, with generics applied.
 #[derive(Clone, Copy)]
 pub struct StructSchema<'a> {
-    pub(crate) raw: RawBrandedStructSchema<'a>,
+    pub(crate) raw: RawBrandedStructSchema,
     pub(crate) proto: node::Reader<'a>,
 }
 
 impl<'a> StructSchema<'a> {
-    pub fn new(raw: RawBrandedStructSchema<'a>) -> Self {
+    pub fn new(raw: RawBrandedStructSchema) -> Self {
         let proto = crate::any_pointer::Reader::new(unsafe {
-            layout::PointerReader::get_root_unchecked(
-                (*raw.generic).encoded_node.as_ptr() as *const u8
-            )
+            layout::PointerReader::get_root_unchecked(raw.generic.encoded_node as *const u8)
         })
         .get_as()
         .unwrap();
@@ -81,9 +78,15 @@ impl<'a> StructSchema<'a> {
 
     #[inline]
     pub fn reborrow(&self) -> StructSchema<'_> {
-        StructSchema {
-            proto: self.proto.reborrow(),
-            raw: self.raw.reborrow(),
+        Self {
+            proto: crate::any_pointer::Reader::new(unsafe {
+                layout::PointerReader::get_root_unchecked(
+                    self.raw.generic.encoded_node as *const u8,
+                )
+            })
+            .get_as()
+            .unwrap(),
+            ..*self
         }
     }
 
@@ -111,10 +114,7 @@ impl<'a> StructSchema<'a> {
 
     pub fn get_field_by_discriminant(self, discriminant: u16) -> Result<Option<Field<'a>>> {
         unsafe {
-            match (*self.raw.generic)
-                .members_by_discriminant
-                .get(discriminant as usize)
-            {
+            match (*self.raw.generic.members_by_discriminant).get(discriminant as usize) {
                 None => Ok(None),
                 Some(&idx) => Ok(Some(self.get_fields()?.get(idx))),
             }
@@ -147,7 +147,7 @@ impl<'a> StructSchema<'a> {
             if let node::Struct(s) = self.proto.which()? {
                 Ok(FieldSubset {
                     fields: s.get_fields()?,
-                    indices: (*self.raw.generic).members_by_discriminant,
+                    indices: self.raw.generic.members_by_discriminant.as_ref().unwrap(),
                     parent: self,
                 })
             } else {
@@ -161,7 +161,7 @@ impl<'a> StructSchema<'a> {
             if let node::Struct(s) = self.proto.which()? {
                 Ok(FieldSubset {
                     fields: s.get_fields()?,
-                    indices: (*self.raw.generic).nonunion_members,
+                    indices: self.raw.generic.nonunion_members.as_ref().unwrap(),
                     parent: self,
                 })
             } else {
@@ -179,8 +179,8 @@ impl<'a> StructSchema<'a> {
     }
 }
 
-impl<'a> From<RawBrandedStructSchema<'a>> for StructSchema<'a> {
-    fn from(rs: RawBrandedStructSchema) -> StructSchema {
+impl<'a> From<RawBrandedStructSchema> for StructSchema<'a> {
+    fn from(rs: RawBrandedStructSchema) -> StructSchema<'a> {
         StructSchema::new(rs)
     }
 }
